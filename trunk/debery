@@ -1,0 +1,147 @@
+#!/bin/sh
+# debery
+# part of the Debery buildsystem.
+# Copyright (c) 2008 hyperclock aka JMCOLEEMAN. <hyperclock@hotmail.de>
+#
+# This software may be freely redistributed and/or modified under the
+# terms of the GNU General Public License as published by the Free
+# Software Foundation; either version 2, or (at your option) any
+# later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; see the file COPYING. If not, write to the
+# Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+#
+# This program is the master menu for the Rookery build system
+
+
+##### Global Variables #####
+version="0.0.1"
+livecd=0
+DISTR="Host: `hostname`"
+DIALOG=${DIALOG=/usr/bin/dialog}
+CONFIG_DIR="/etc/debery"
+CONFIG_FILE="$CONFIG_DIR/build.conf"
+DISTR_FILE="$CONFIG_DIR/distr.conf"
+DOT_CMD=`which dot 2>/dev/null`
+BUILD_FIFO=/tmp/build
+LCD_CONF_DIR=/opt/livecd-devel/conf
+LCD_SCRIPTS_DIR=/opt/livecd-devel/scripts
+LCD_IMAGES_DIR=/opt/livecd-devel/images
+
+# These are the suggested defaults
+reset_config_vars ()
+{
+KERNEL_VERSION=""
+TARGET="/mnt/target"
+TDEVICE=""
+BUILD_USER="build"
+BUILD_HOME=""
+WORKING="working"
+REPOSITORY_ROOT="/opt/repo"
+}
+
+reset_distr_vars ()
+{
+distname="Dist name"
+distversion="0.1"
+distmaintainer="Your name <email address>"
+distinfo="Your web site"
+distpackagesource="Release name"
+}
+
+######## End Globals #######
+load_config ()
+{
+if [ -f $CONFIG_FILE ] ; then
+	source $CONFIG_FILE
+else
+	$DIALOG --title "ERROR" --backtitle "$DISTR" \
+		--msgbox "The build.conf file was not found - aborting" 8 40
+	return 1
+fi
+return 0
+}
+
+################ Signal Handling Functions #####################
+default_signal_handler ()
+{
+	trap "rm -f $tempfile; exit 2" 1 2 3 5 15
+}
+
+ignore_signals ()
+{
+	trap : 1 2 3 5 15
+}
+
+################## Validation Functions #######################
+
+choose_package ()
+{
+typeset list=`cat $SOURCE_INDEX | sort | awk '{ printf "%s \"\" Off.", $1 }'`
+if [ x"$list" = "x" ] ; then
+	$DIALOG --title "ERROR" --backtitle "$DISTR" \
+                --msgbox "The source index is either empty or not found - aborting" 8 40
+	retval=1
+	return 1
+fi
+echo $list | tr '.' '\n' | xargs $DIALOG --backtitle "$DISTR" --title "Select Package" --radiolist "Choose the deb package. Use the up and down arrow to choose a package, the space bar to select it, and then tab to the OK or Cancel button." 20 64 10  2> $tempfile
+retval=$?
+choice=`cat $tempfile`
+}
+
+choose_repo ()
+{
+typeset list=`ls $SOURCE_REPOSITORY | awk '{ printf "%s \"\" Off.", $1 }'`
+if [ x"$list" = "x" ] ; then
+	$DIALOG --title "ERROR" --backtitle "$DISTR" \
+                --msgbox "The source repository directory is either empty or not found - aborting" 8 40
+	retval=1
+	return 1
+fi
+echo $list | tr '.' '\n' | xargs $DIALOG --backtitle "$DISTR" --title "Select Repository" --radiolist "Choose the repository. Use the up and down arrow to choose a package, the space bar to select it, and then tab to the OK or Cancel button." 20 64 10  2> $tempfile
+retval=$?
+choice=`cat $tempfile`
+}
+
+choose_level ()
+{
+typeset list=`cat $BUILD_LIST | cut -f 1 | sort -g | uniq | awk '{ printf "%s \"\" Off.", $1 }'`
+if [ x"$list" = "x" ] ; then
+	$DIALOG --title "ERROR" --backtitle "$DISTR" \
+                --msgbox "The build list is either empty or not found - aborting" 8 40
+	retval=1
+	return 1
+fi
+echo $list | tr '.' '\n' | xargs $DIALOG --backtitle "$DISTR" --title "Select Level" --radiolist "Choose the level from which the build will proceed. 0 is the beginning and higher numbers are farther into the build sequence. Use the up and down arrow to choose a package, the space bar to select it, and then tab to the OK or Cancel button." 20 66 8  2> $tempfile
+retval=$?
+choice=`cat $tempfile`
+}
+
+
+############### Edit Global Settings Functions ################
+show_edit ()
+{
+$DIALOG --backtitle "$DISTR" --title "Edit Global Settings" \
+--default-item $ITEM --cancel-label "Quit" \
+--menu "The defaults are recommended except for TARGET and TDEVICE.\n\n\
+         Choose your task:" 18 64 8 \
+        "KERNEL_VERSION"   "$KERNEL_VERSION" \
+	"TARGET" "$TARGET" \
+	"TDEVICE" "$TDEVICE" \
+	"BUILD_USER" "$BUILD_USER" \
+	"WORKING" "$WORKING" \
+	"REPOSITORY_ROOT" "$REPOSITORY_ROOT" \
+        "SAVE"   "Save Configuration" \
+        "QUIT"   "Return to the Configure Menu" 2> $tempfile
+                                                                                
+retval=$?
+choice=`cat $tempfile`
+}
+
+edit_kernversion ()
